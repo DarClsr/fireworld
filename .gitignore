@@ -1,0 +1,8 @@
+# Godot
+.godot/
+*.translation
+
+# 系统/临时
+tmp/
+.DS_Store
+Thumbs.db
