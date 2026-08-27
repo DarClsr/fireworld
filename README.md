@@ -22,6 +22,7 @@
 | [04 区域列表](docs/04-regions.md) | 五烽一峰六大区域的玩法主题与 Boss |
 | [05 资产管线](docs/05-assets-pipeline.md) | 零建模资产映射、shader 需求、风险对策 |
 | [06 路线图](docs/06-roadmap.md) | M0–M4 里程碑、目录规范、技术决策记录 |
+| [07 美术升级](docs/07-art-upgrade.md) | 场景简陋的病根诊断与三梯队整改方案 |
 
 ## 当前状态
 
