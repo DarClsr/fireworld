@@ -12,6 +12,10 @@ static func ensure_actions() -> void:
 	_add("attack_heavy", [_mouse(MOUSE_BUTTON_RIGHT), _key(KEY_K)])
 	_add("add_seed", [_key(KEY_E)])
 	_add("release_mouse", [_key(KEY_ESCAPE)])
+	_add("interact", [_key(KEY_F)])
+	_add("throw_seed", [_key(KEY_T)])
+	_add("form_raw", [_key(KEY_1)])
+	_add("form_wood", [_key(KEY_2)])
 
 
 static func _add(action_name: String, events: Array) -> void:

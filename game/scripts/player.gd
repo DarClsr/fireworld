@@ -25,6 +25,8 @@ const HEAVY_MIN_RATIO := 0.45     # 最短松开的威力比例
 var state: int = State.MOVE
 var phase: int = Phase.NONE
 
+var swarm                       # SeedSwarm，main 注入（投掷消耗用）
+var selected_form := 0          # 0 原始 / 1 木
 var model_root: Node3D
 var cam_yaw: Node3D
 var cam_arm: SpringArm3D
@@ -44,6 +46,9 @@ var _hit_set: Dictionary = {}
 var _swing_tw: Tween
 var _debug_move_dir := Vector3.ZERO
 var _pitch_deg := -14.0
+var _throw_cd := 0.0
+var _tip_warm := Color(1.0, 0.72, 0.35)
+var _tip_green := Color(0.45, 0.9, 0.35)
 var staff_pivot: Node3D
 var _tip_mat: StandardMaterial3D
 var _tip_rest_energy := 1.6
@@ -130,7 +135,7 @@ func _build_model() -> void:
 	_tip_mat = StandardMaterial3D.new()
 	_tip_mat.albedo_color = Color(0.9, 0.62, 0.3)
 	_tip_mat.emission_enabled = true
-	_tip_mat.emission = Color(1.0, 0.72, 0.35)
+	_tip_mat.emission = _tip_warm
 	_tip_mat.emission_energy_multiplier = _tip_rest_energy
 	tip.material_override = _tip_mat
 	staff_pivot.add_child(tip)
@@ -177,6 +182,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	_throw_cd = maxf(_throw_cd - delta, 0.0)
 	if not is_on_floor():
 		velocity.y -= _gravity * delta
 
@@ -238,6 +244,12 @@ func _tick_state(delta: float) -> void:
 				_start_stage(1)
 			elif Input.is_action_just_pressed("jump") and is_on_floor():
 				velocity.y = JUMP_VELOCITY
+			elif Input.is_action_just_pressed("form_raw"):
+				_set_form(0)
+			elif Input.is_action_just_pressed("form_wood"):
+				_set_form(1)
+			elif Input.is_action_just_pressed("throw_seed"):
+				_do_throw()
 		State.CHARGE:
 			_charge_time += delta
 			_tip_mat.emission_energy_multiplier = lerpf(_tip_rest_energy, 4.2,
@@ -376,6 +388,81 @@ func _tick_hits() -> void:
 func _kill_swing() -> void:
 	if _swing_tw != null and _swing_tw.is_valid():
 		_swing_tw.kill()
+
+
+# ---------------------------------------------------------------- 形态与投掷
+
+func _set_form(form: int) -> void:
+	selected_form = form
+	if form == 1:
+		_tip_mat.emission = _tip_green
+	else:
+		_tip_mat.emission = _tip_warm
+
+
+func _do_throw() -> void:
+	if selected_form != 1 or _throw_cd > 0.0 or swarm == null:
+		return
+	if not swarm.consume_one():
+		return
+	_throw_cd = 0.8
+	var info := _resolve_throw_target()
+	_spawn_flying_seed(info.target, info.anchor)
+
+
+func _resolve_throw_target() -> Dictionary:
+	var cam := get_viewport().get_camera_3d()
+	var origin: Vector3 = cam.global_position
+	var dir: Vector3 = -cam.global_basis.z
+	var best_node = null
+	var best_dist := 2.8
+	for a in get_tree().get_nodes_in_group("vine_anchor"):
+		var to_a: Vector3 = a.global_position - origin
+		var t: float = clampf(to_a.dot(dir), 1.5, 16.0)
+		var closest: Vector3 = origin + dir * t
+		var d: float = closest.distance_to(a.global_position)
+		if d < best_dist:
+			best_dist = d
+			best_node = a
+	if best_node != null:
+		return {"target": best_node.global_position + Vector3(0, 0.95, 0), "anchor": best_node}
+	return {"target": origin + dir * 10.0, "anchor": null}
+
+
+func _spawn_flying_seed(target: Vector3, anchor) -> void:
+	var start: Vector3 = swarm.global_position + Vector3.UP * 1.1
+	var flyer := MeshInstance3D.new()
+	var mesh := SphereMesh.new()
+	mesh.radius = 0.1
+	mesh.height = 0.2
+	flyer.mesh = mesh
+	var m := StandardMaterial3D.new()
+	m.albedo_color = Color(0.5, 0.85, 0.35)
+	m.emission_enabled = true
+	m.emission = Color(0.5, 0.9, 0.35)
+	m.emission_energy_multiplier = 1.4
+	flyer.material_override = m
+	add_child(flyer)
+	flyer.global_position = start
+
+	var setter := func(t: float) -> void:
+		var p := start.lerp(target, t)
+		p.y += sin(t * PI) * 1.1
+		flyer.global_position = p
+	var tw := create_tween()
+	tw.tween_method(setter, 0.0, 1.0, 0.38)
+	tw.tween_callback(func():
+		flyer.queue_free()
+		if anchor != null and anchor.has_meta("bridge"):
+			var bridge_node = anchor.get_meta("bridge")
+			if bridge_node != null and bridge_node.has_method("notify_seed_hit"):
+				bridge_node.notify_seed_hit())
+
+
+func debug_throw() -> void:
+	cancel_to_move()
+	_set_form(1)
+	_do_throw()
 
 
 # ---------------------------------------------------------------- 测试接口

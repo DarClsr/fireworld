@@ -4,6 +4,7 @@ extends Node3D
 
 const MAX_SEEDS := 12
 const START_SEEDS := 3
+const SEED_RETURN_DELAY := 6.0   # 消耗后延迟归还（模拟“飞回来”）
 const RING_RADIUS := 0.62
 const RING_ELLIPSE_X := 1.3       # 环带稍扁，队形更自然
 const FOLLOW_DAMP := 6.5          # 指数趋近速率
@@ -26,6 +27,20 @@ func _ready() -> void:
 
 func seed_count() -> int:
 	return _units.size()
+
+
+## 消耗一颗（投掷等），延迟后自动归还。不足时返回 false。
+func consume_one() -> bool:
+	if _units.is_empty():
+		return false
+	var u: Node3D = _units.pop_back()
+	u.queue_free()
+	_noises.pop_back()
+	_times.pop_back()
+	get_tree().create_timer(SEED_RETURN_DELAY).timeout.connect(func():
+		if is_inside_tree():
+			add_seed(1))
+	return true
 
 
 func add_seed(n: int) -> int:
