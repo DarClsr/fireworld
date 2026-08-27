@@ -7,6 +7,7 @@ const MAX_HP := 60.0
 
 var hp := MAX_HP
 var broken := false
+var label_font: Font   # 可选中文字体
 
 var _holder: Node3D
 var _label: Label3D
@@ -80,6 +81,8 @@ func _ready() -> void:
 	_label.pixel_size = 0.006
 	_label.position.y = 1.95
 	_label.modulate = Color(0.92, 0.88, 0.8)
+	if label_font != null:
+		_label.font = label_font
 	add_child(_label)
 	_refresh_label()
 
@@ -96,9 +99,9 @@ func receive_hit(damage: float, _dir: Vector3, knock: float, heavy: bool) -> voi
 
 func _refresh_label() -> void:
 	var shown := maxf(hp, 0.0)
-	_label.text = "POST %.0f / %d" % [shown, int(MAX_HP)]
+	_label.text = "木桩 %.0f / %d" % [shown, int(MAX_HP)]
 	if hp <= 0.0:
-		_label.text = "..."
+		_label.text = "…"
 
 
 func _float_number(damage: float, heavy: bool) -> void:

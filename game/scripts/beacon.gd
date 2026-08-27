@@ -7,6 +7,7 @@ const IGNITE_TIME := 1.4
 const INTERACT_RANGE := 2.8
 
 var player_body   # duck typing，main 注入
+var label_font: Font   # 可选中文字体，main 注入
 
 var _lit := false
 var _bowl_light: OmniLight3D
@@ -91,13 +92,15 @@ func _ready() -> void:
 	add_child(_flame)
 
 	_prompt = Label3D.new()
-	_prompt.text = "[F] LIGHT THE BEACON"
+	_prompt.text = "「F」点亮烽火"
 	_prompt.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	_prompt.font_size = 46
 	_prompt.outline_size = 12
 	_prompt.pixel_size = 0.006
 	_prompt.position.y = 4.9
 	_prompt.modulate = Color(0.95, 0.85, 0.6)
+	if label_font != null:
+		_prompt.font = label_font
 	_prompt.visible = false
 	add_child(_prompt)
 
@@ -136,7 +139,7 @@ func ignite() -> void:
 		return
 	_lit = true
 	_prompt.visible = false
-	_prompt.text = "BEACON LIT"
+	_prompt.text = "烽火已燃"
 	_prompt.modulate = Color(1.0, 0.8, 0.45)
 	_prompt.visible = true
 	_flame.emitting = true

@@ -16,6 +16,7 @@ static func ensure_actions() -> void:
 	_add("throw_seed", [_key(KEY_T)])
 	_add("form_raw", [_key(KEY_1)])
 	_add("form_wood", [_key(KEY_2)])
+	_add("dodge", [_key(KEY_SHIFT)])
 
 
 static func _add(action_name: String, events: Array) -> void:

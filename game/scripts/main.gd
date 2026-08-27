@@ -1,27 +1,35 @@
 extends Node3D
-## M1 灰盒：永夜世界 + 木籽藤桥 + 烽台点火推夜。
+## M2a 灰窑村序章：永夜山坳小村 + 教学链 + 授火仪式 + 村口烽火推夜预演。
 ## 运行参数（`--` 之后）：
-##   --smoke                headless 冒烟自检，PASS 后 quit(0)
-##   --shot=path_base       演出式截图（wide/bridge/beacon/bench 四张）后 quit(0)
+##   --smoke                headless 冒烟自检（序章触发链），PASS 后 quit(0)
+##   --shot=path_base       演出截图（village/ceremony/gate/bench）后 quit(0)
+##   --nofog                关体积雾（性能对照用）
 
 const PlayerScript := preload("res://scripts/player.gd")
 const DummyScript := preload("res://scripts/dummy.gd")
 const SwarmScript := preload("res://scripts/seed_swarm.gd")
 const BeaconScript := preload("res://scripts/beacon.gd")
-const BridgeScript := preload("res://scripts/vine_bridge.gd")
-
-const SPAWN := Vector3(0, 0.06, 0.5)
+const VillageScript := preload("res://scripts/village_kiln.gd")
+const DirectorScript := preload("res://scripts/prologue_director.gd")
+const DialogueScript := preload("res://scripts/dialogue_box.gd")
 
 var player
 var dummy
 var swarm
 var beacon
-var bridge
+var village
+var director
+var dialogue
+
+var env: Environment
+var moon: DirectionalLight3D
 var hud: Label
+var obj_label: Label
+var _banner_title: Label
+var _banner_sub: Label
+var _fade_rect: ColorRect
 var _lit_count := 0
-var _camp_light: OmniLight3D
-var _flick := FastNoiseLite.new()
-var _t := 0.0
+var _campfire_light: OmniLight3D
 
 var _checks := 0
 var _shot_base := ""
@@ -31,6 +39,8 @@ var _frame := 0
 var _fps_accum := 0.0
 var _fps_n := 0
 var _deltas: Array[float] = []
+var _flick := FastNoiseLite.new()
+var _t := 0.0
 
 
 func _ready() -> void:
@@ -58,10 +68,10 @@ func _ready() -> void:
 
 func _physics_process(delta: float) -> void:
 	_t += delta
-	if _camp_light != null:
-		_camp_light.light_energy = 2.6 * (0.88 + 0.12 * _flick.get_noise_1d(_t * 8.0))
+	if _campfire_light != null:
+		_campfire_light.light_energy = 2.4 * (0.88 + 0.12 * _flick.get_noise_1d(_t * 8.0))
 	if is_instance_valid(player) and player.global_position.y < -6.0:
-		player.global_position = SPAWN
+		player.global_position = village.to_global(village.spawn_local)
 		player.velocity = Vector3.ZERO
 
 
@@ -74,11 +84,8 @@ func _process(delta: float) -> void:
 	_fps_n += 1
 	if _fps_n >= 30 and is_instance_valid(hud):
 		var fps := float(_fps_n) / maxf(_fps_accum, 0.0001)
-		var form := "RAW"
-		if player.selected_form == 1:
-			form = "WOOD"
-		hud.text = "FPS %d | seeds %d | beacons %d/1 | FORM %s | frame %d" % [
-				roundi(fps), swarm.seed_count(), _lit_count, form, _frame]
+		hud.text = "FPS %d | seeds %d | beacons %d | frame %d" % [
+				roundi(fps), swarm.seed_count(), _lit_count, _frame]
 		_fps_accum = 0.0
 		_fps_n = 0
 
@@ -87,7 +94,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("release_mouse"):
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	elif event.is_action_pressed("add_seed"):
-		swarm.add_seed(1)
+		if swarm.seed_count() > 0:   # 授火前不许作弊加籽
+			swarm.add_seed(1)
 	elif event is InputEventMouseButton and event.pressed:
 		if Input.mouse_mode == Input.MOUSE_MODE_VISIBLE and DisplayServer.get_name() != "headless":
 			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
@@ -100,59 +108,65 @@ func lit_count() -> int:
 # ---------------------------------------------------------------- 世界搭建
 
 func _build_world() -> void:
-	add_child(_make_night_environment())
-	add_child(_make_moon())
+	var cn := CnFont.get_font()
+	env = _make_night_environment()
+	var we := WorldEnvironment.new()
+	we.environment = env
+	add_child(we)
+	moon = _make_moon()
+	add_child(moon)
 	add_child(_make_grading_overlay())
 
-	add_child(_make_platform(Vector3(0, -0.5, -6.0), Vector2(24, 32)))    # 主平台 z∈[-22,10]
-	add_child(_make_platform(Vector3(0, -0.5, -35.0), Vector2(10, 10)))   # 小岛 z∈[-40,-30]
-	add_child(_make_abyss_floor())
+	add_child(_make_platform(Vector3(0, -0.5, 2.0), Vector2(46, 36)))   # 村子地面 z∈[-16,20]
 
-	for spec: Array in [
-		[Vector3(-4.5, 0.75, -7.0), Vector3(1.6, 1.5, 1.6)],
-		[Vector3(5.5, 0.5, -10.0), Vector3(1.2, 1.0, 2.4)],
-		[Vector3(-8.0, 1.25, -15.0), Vector3(2.2, 2.5, 2.2)],
-		[Vector3(3.4, 0.5, -37.2), Vector3(1.2, 1.0, 1.2)],
-	]:
-		add_child(_make_block(spec[0], spec[1]))
-
-	add_child(_make_campfire(Vector3(2.3, 0, 1.6)))
+	village = VillageScript.new()
+	village.font = cn
+	add_child(village)
 
 	player = PlayerScript.new()
-	player.position = SPAWN
+	player.position = village.to_global(village.spawn_local)
 	add_child(player)
 
 	dummy = DummyScript.new()
-	dummy.position = Vector3(0, 0, -1.55)
+	dummy.position = village.to_global(village.dummy_local)
+	dummy.label_font = cn
 	add_child(dummy)
 
 	swarm = SwarmScript.new()
+	swarm.auto_start = false   # 授火仪式后才发星籽
 	swarm.player_body = player
 	add_child(swarm)
 	player.swarm = swarm
 
-	bridge = BridgeScript.new()
-	add_child(bridge)
-
 	beacon = BeaconScript.new()
-	beacon.position = Vector3(0, 0, -35.0)
+	beacon.position = village.to_global(village.gate_local)
+	beacon.scale = Vector3.ONE * 0.62
 	beacon.player_body = player
+	beacon.label_font = cn
 	beacon.lit_changed.connect(func(_b): _lit_count += 1)
 	add_child(beacon)
 
-	var canvas := CanvasLayer.new()
-	canvas.layer = 1
-	add_child(canvas)
-	hud = Label.new()
-	hud.position = Vector2(12, 10)
-	hud.text = "booting..."
-	canvas.add_child(hud)
+	add_child(_make_campfire(Vector3(-2.0, 0, 6.8)))
+
+	dialogue = DialogueScript.new()
+	add_child(dialogue)
+	_build_hud(cn)
+
+	director = DirectorScript.new()
+	director.main = self
+	director.player = player
+	director.dummy = dummy
+	director.swarm = swarm
+	director.beacon = beacon
+	director.village = village
+	director.dialogue = dialogue
+	add_child(director)
+	director.run.call_deferred()
 
 
-func _make_night_environment() -> WorldEnvironment:
-	var we := WorldEnvironment.new()
-	var env := Environment.new()
-	env.background_mode = Environment.BG_SKY
+func _make_night_environment() -> Environment:
+	var e := Environment.new()
+	e.background_mode = Environment.BG_SKY
 	var sky := Sky.new()
 	var mat := ProceduralSkyMaterial.new()
 	mat.sky_top_color = Color(0.012, 0.02, 0.05)
@@ -160,40 +174,38 @@ func _make_night_environment() -> WorldEnvironment:
 	mat.ground_bottom_color = Color(0.004, 0.005, 0.01)
 	mat.ground_horizon_color = Color(0.05, 0.07, 0.13)
 	sky.sky_material = mat
-	env.sky = sky
-	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color(0.45, 0.55, 0.75)
-	env.ambient_light_energy = 0.22
-	env.tonemap_mode = Environment.TONE_MAPPER_ACES
-	env.tonemap_exposure = 1.05
-	env.glow_enabled = true
-	env.glow_intensity = 0.5
-	env.glow_bloom = 0.0
-	env.fog_enabled = true
-	env.fog_light_color = Color(0.05, 0.08, 0.14)
-	env.fog_density = 0.012
-	env.fog_sky_affect = 0.15
+	e.sky = sky
+	e.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	e.ambient_light_color = Color(0.45, 0.55, 0.75)
+	e.ambient_light_energy = 0.22
+	e.tonemap_mode = Environment.TONE_MAPPER_ACES
+	e.tonemap_exposure = 1.05
+	e.glow_enabled = true
+	e.glow_intensity = 0.5
+	e.fog_enabled = true
+	e.fog_light_color = Color(0.05, 0.08, 0.14)
+	e.fog_density = 0.012
+	e.fog_sky_affect = 0.15
 	if _fog_off:
-		return
-	env.volumetric_fog_enabled = true
-	env.volumetric_fog_density = 0.026
-	env.volumetric_fog_albedo = Color(0.5, 0.56, 0.72)
-	env.volumetric_fog_emission = Color(0.06, 0.09, 0.16)
-	env.volumetric_fog_emission_energy = 0.8
-	env.volumetric_fog_anisotropy = 0.6
-	env.volumetric_fog_length = 48.0
-	we.environment = env
-	return we
+		return e
+	e.volumetric_fog_enabled = true
+	e.volumetric_fog_density = 0.026
+	e.volumetric_fog_albedo = Color(0.5, 0.56, 0.72)
+	e.volumetric_fog_emission = Color(0.06, 0.09, 0.16)
+	e.volumetric_fog_emission_energy = 0.8
+	e.volumetric_fog_anisotropy = 0.6
+	e.volumetric_fog_length = 48.0
+	return e
 
 
 func _make_moon() -> DirectionalLight3D:
-	var moon := DirectionalLight3D.new()
-	moon.rotation_degrees = Vector3(-38, 140, 0)
-	moon.light_color = Color(0.6, 0.7, 1.0)
-	moon.light_energy = 0.28
-	moon.shadow_enabled = true
-	moon.directional_shadow_max_distance = 60.0
-	return moon
+	var m := DirectionalLight3D.new()
+	m.rotation_degrees = Vector3(-38, 140, 0)
+	m.light_color = Color(0.6, 0.7, 1.0)
+	m.light_energy = 0.28
+	m.shadow_enabled = true
+	m.directional_shadow_max_distance = 60.0
+	return m
 
 
 func _make_grading_overlay() -> CanvasLayer:
@@ -244,22 +256,9 @@ func _make_platform(center: Vector3, size: Vector2) -> StaticBody3D:
 	return body
 
 
-func _make_abyss_floor() -> MeshInstance3D:
-	var mi := MeshInstance3D.new()
-	var pm := PlaneMesh.new()
-	pm.size = Vector2(160, 160)
-	mi.mesh = pm
-	mi.position.y = -9.0
-	var m := StandardMaterial3D.new()
-	m.albedo_color = Color(0.012, 0.014, 0.022)
-	m.roughness = 1.0
-	mi.material_override = m
-	return mi
-
-
 func _ground_material() -> StandardMaterial3D:
 	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.30, 0.34, 0.26)
+	mat.albedo_color = Color(0.33, 0.30, 0.23)
 	var noise := FastNoiseLite.new()
 	noise.frequency = 0.05
 	var nt := NoiseTexture2D.new()
@@ -270,25 +269,6 @@ func _ground_material() -> StandardMaterial3D:
 	mat.uv1_scale = Vector3(10.0, 10.0, 1.0)
 	mat.roughness = 1.0
 	return mat
-
-
-func _make_block(pos: Vector3, size: Vector3) -> StaticBody3D:
-	var body := StaticBody3D.new()
-	body.collision_layer = 1
-	body.collision_mask = 0
-	body.position = pos
-	var mi := MeshInstance3D.new()
-	var bm := BoxMesh.new()
-	bm.size = size
-	mi.mesh = bm
-	mi.material_override = _flat(Color(0.30, 0.30, 0.29))
-	body.add_child(mi)
-	var col := CollisionShape3D.new()
-	var shape := BoxShape3D.new()
-	shape.size = size
-	col.shape = shape
-	body.add_child(col)
-	return body
 
 
 func _make_campfire(pos: Vector3) -> Node3D:
@@ -303,10 +283,7 @@ func _make_campfire(pos: Vector3) -> Node3D:
 		log.mesh = lm
 		log.rotation_degrees = Vector3(78, 120.0 * float(i), 0)
 		log.position.y = 0.12
-		var m := StandardMaterial3D.new()
-		m.albedo_color = Color(0.2, 0.14, 0.1)
-		m.roughness = 1.0
-		log.material_override = m
+		log.material_override = _flat(Color(0.2, 0.14, 0.1))
 		root.add_child(log)
 
 	var p := CPUParticles3D.new()
@@ -341,14 +318,100 @@ func _make_campfire(pos: Vector3) -> Node3D:
 	p.mesh = quad
 	root.add_child(p)
 
-	_camp_light = OmniLight3D.new()
-	_camp_light.position = Vector3(0, 0.9, 0)
-	_camp_light.light_color = Color(1.0, 0.7, 0.4)
-	_camp_light.omni_range = 8.5
-	_camp_light.light_energy = 2.6
-	_camp_light.shadow_enabled = false
-	root.add_child(_camp_light)
+	_campfire_light = OmniLight3D.new()
+	_campfire_light.position = Vector3(0, 0.9, 0)
+	_campfire_light.light_color = Color(1.0, 0.7, 0.4)
+	_campfire_light.omni_range = 8.0
+	_campfire_light.light_energy = 2.4
+	_campfire_light.shadow_enabled = false
+	root.add_child(_campfire_light)
 	return root
+
+
+func _build_hud(cn: FontFile) -> void:
+	var canvas := CanvasLayer.new()
+	canvas.layer = 1
+	add_child(canvas)
+	hud = Label.new()
+	hud.position = Vector2(12, 10)
+	hud.text = "booting..."
+	canvas.add_child(hud)
+
+	obj_label = Label.new()
+	obj_label.position = Vector2(12, 34)
+	if cn != null:
+		obj_label.add_theme_font_override("font", cn)
+	obj_label.add_theme_font_size_override("font_size", 19)
+	obj_label.add_theme_color_override("font_color", Color(0.9, 0.82, 0.6))
+	obj_label.text = ""
+	canvas.add_child(obj_label)
+
+	var banner_box := VBoxContainer.new()
+	banner_box.set_anchors_preset(Control.PRESET_CENTER)
+	banner_box.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	banner_box.grow_vertical = Control.GROW_DIRECTION_BOTH
+	banner_box.alignment = BoxContainer.ALIGNMENT_CENTER
+	_banner_title = Label.new()
+	_banner_title.add_theme_font_size_override("font_size", 34)
+	_banner_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_banner_title.add_theme_color_override("font_color", Color(0.95, 0.85, 0.55))
+	if cn != null:
+		_banner_title.add_theme_font_override("font", cn)
+	_banner_sub = Label.new()
+	_banner_sub.add_theme_font_size_override("font_size", 18)
+	_banner_sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_banner_sub.add_theme_color_override("font_color", Color(0.75, 0.72, 0.66))
+	if cn != null:
+		_banner_sub.add_theme_font_override("font", cn)
+	banner_box.add_child(_banner_title)
+	banner_box.add_child(_banner_sub)
+	banner_box.modulate.a = 0.0
+	canvas.add_child(banner_box)
+
+	var fade_layer := CanvasLayer.new()
+	fade_layer.layer = 12
+	add_child(fade_layer)
+	_fade_rect = ColorRect.new()
+	_fade_rect.color = Color(0, 0, 0, 1)
+	_fade_rect.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_fade_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	fade_layer.add_child(_fade_rect)
+
+
+# ---------------------------------------------------------------- 演出服务（导演调用）
+
+func fade_from_black(dur: float) -> void:
+	_fade_rect.visible = true
+	_fade_rect.color.a = 1.0
+	var tw := create_tween()
+	tw.tween_property(_fade_rect, "color:a", 0.0, dur)
+	tw.tween_callback(func(): _fade_rect.visible = false)
+
+
+func set_objective(text: String) -> void:
+	obj_label.text = text
+
+
+func show_banner(title: String, sub: String) -> void:
+	_banner_title.text = title
+	_banner_sub.text = sub
+	var box: Control = _banner_title.get_parent()
+	var tw := create_tween()
+	tw.tween_property(box, "modulate:a", 1.0, 0.8)
+	tw.tween_interval(3.5)
+	tw.tween_property(box, "modulate:a", 0.0, 1.2)
+
+
+func push_back_night() -> void:
+	var tw := create_tween()
+	tw.set_parallel(true)
+	tw.tween_property(env, "ambient_light_energy", 0.42, 1.6)
+	tw.tween_property(moon, "light_energy", 0.38, 1.6)
+	tw.tween_property(env, "fog_density", 0.005, 1.6)
+	if env.volumetric_fog_enabled:
+		tw.tween_property(env, "volumetric_fog_density", 0.012, 1.6)
+	for l in village.lantern_lights:
+		tw.tween_property(l, "light_energy", 1.7, 1.6)
 
 
 func _flat(color: Color) -> StandardMaterial3D:
@@ -375,49 +438,60 @@ func _run_smoke() -> void:
 
 	_check(is_instance_valid(player), "player alive")
 	_check(is_instance_valid(dummy), "dummy alive")
-	_check(swarm.seed_count() == 3, "initial seeds = 3 (got %d)" % swarm.seed_count())
+	_check(swarm.seed_count() == 0, "seeds locked before ceremony (got %d)" % swarm.seed_count())
 
-	var hp0: float = dummy.hp
-	player.debug_attack(false)
-	var got_light := await _wait_until(func(): return dummy.hp < hp0 - 0.001, 300)
-	_check(got_light, "light attack damaged dummy")
-
-	var hp1: float = dummy.hp
-	player.debug_attack(true)
-	var got_heavy := await _wait_until(func(): return dummy.hp < hp1 - 0.001, 360)
-	_check(got_heavy, "heavy attack damaged dummy")
-
-	swarm.add_seed(2)
-	await _wait_physics(60)
-	_check(swarm.seed_count() == 5, "seeds grew to 5 (got %d)" % swarm.seed_count())
-
-	# —— M1：掷木籽 → 长桥 → 过沟 ——
-	player.debug_set_move(Vector3(0, 0, -1))
-	var at_edge := await _wait_until(func(): return player.global_position.z < -18.5, 400)
-	_check(at_edge, "reached gap edge")
-	player.debug_clear_move()
-
-	var seeds_before: int = swarm.seed_count()
-	player.debug_throw()
-	var thrown := await _wait_until(func(): return swarm.seed_count() == seeds_before - 1, 90)
-	_check(thrown, "seed consumed on throw")
-
-	var grown := await _wait_until(func(): return bridge.is_grown(), 300)
-	_check(grown, "vine bridge grown")
+	var opened := await _wait_until(func(): return dialogue.is_open(), 500)
+	_check(opened, "intro dialogue opened")
+	dialogue.debug_finish()
+	await _wait_until(func(): return director.stage == 1, 200)   # T_MOVE
 
 	player.debug_set_move(Vector3(0, 0, -1))
-	var crossed := await _wait_until(func(): return player.global_position.z < -31.0, 500)
+	await _wait_until(func(): return director.stage >= 2, 500)   # T_ATTACK
 	player.debug_clear_move()
-	_check(crossed, "crossed to islet")
-	_check(player.global_position.y > -1.5, "stood on bridge/islet")
+	player.global_position = village.to_global(village.dummy_local) + Vector3(0.5, 0.06, 1.7)
+	await _wait_physics(3)
 
-	# —— M1：烽台交互 ——
-	player.global_position = Vector3(1.5, 0.06, -33.9)
+	for i in range(3):
+		var hp0: float = dummy.hp
+		player.debug_attack(false)
+		await _wait_until(func(): return dummy.hp < hp0 - 0.001 or dummy.broken, 400)
+	await _wait_until(func(): return director.stage >= 3, 200)   # T_ROLL
+	await _wait_until(func(): return player.state == 0, 200)     # 等攻击收招回 MOVE
+
+	player.debug_roll()
+	await _wait_until(func(): return player.state == 0, 150)     # 回到 MOVE
+	player.debug_roll()
+	await _wait_until(func(): return player.state == 0, 150)
+	_check(director.stage >= 4, "tutorials done -> TO_KILN (stage=%d)" % director.stage)
+
+	player.global_position = village.to_global(village.grandma_local) + Vector3(1.0, 0.06, 0.8)
+	var talk := await _wait_until(func(): return dialogue.is_open(), 300)
+	_check(talk, "ceremony dialogue opened")
+	dialogue.debug_finish()
+	await _wait_until(func(): return director.stage == 6, 200)   # CEREMONY
+	var to_gate := await _wait_until(func(): return director.stage == 7, 700)   # TO_GATE(含仪式演出)
+	_check(to_gate, "ceremony finished -> TO_GATE")
+	dialogue.debug_finish()
+
+	_check(swarm.seed_count() == 3, "seeds granted (got %d)" % swarm.seed_count())
+
+	player.global_position = beacon.global_position + Vector3(1.2, 0.06, 0.9)
 	player.velocity = Vector3.ZERO
 	await _wait_physics(5)
-	_check(beacon.try_interact(), "interact ignites beacon")
+	_check(beacon.try_interact(), "gate beacon ignited")
 	_check(beacon.is_lit(), "beacon lit")
 	_check(lit_count() == 1, "lit_count == 1")
+
+	var done := false
+	for i in range(800):
+		if dialogue.is_open():
+			dialogue.debug_finish()
+		if director.stage == 10:   # DONE
+			done = true
+			break
+		await get_tree().physics_frame
+	_check(done, "prologue reached DONE (stage=%d)" % director.stage)
+	_check(env.ambient_light_energy > 0.35, "night pushed back (ambient=%.2f)" % env.ambient_light_energy)
 
 	await _wait_physics(60)
 	_check(swarm.all_positions_finite(), "seed transforms finite")
@@ -468,28 +542,35 @@ func _run_shot_timeline() -> void:
 	add_child(cin)
 	cin.make_current()
 
-	# Beat 1 夜营全景：篝火、木桩、星籽
-	_aim_cam(cin, Vector3(3.6, 1.8, 4.5), Vector3(0.1, 1.0, -0.7))
-	await _r(45)
-	await _snap(_shot_base + "_wide.png")
+	# Beat 1 村庄全景：沿灯笼路望向灰窑
+	_aim_cam(cin, Vector3(-19.0, 6.5, 15.5), Vector3(5.0, 0.8, -6.0))
+	await _r(110)
+	await _snap(_shot_base + "_village.png")
 
-	# Beat 2 藤桥：长桥过沟
-	bridge.grow()
-	player.debug_set_move(Vector3(0, 0, -1))
-	await _wait_until(func(): return player.global_position.z < -26.0, 500)
-	player.debug_clear_move()
-	_aim_cam(cin, Vector3(4.2, 2.2, -25.4), Vector3(0, 0.5, -27.5))
-	await _r(14)
-	await _snap(_shot_base + "_bridge.png")
+	# Beat 2 仪式：火种飞向灯芽（连续跳过途中所有对话直到仪式开演）
+	director.debug_ff_tutorials()
+	player.global_position = village.to_global(village.grandma_local) + Vector3(1.0, 0.06, 0.9)
+	for i in range(8):
+		if director.stage >= 6:
+			break
+		if dialogue.is_open():
+			dialogue.debug_finish()
+		await _r(10)
+	await _wait_until(func(): return director.stage == 6, 400)   # CEREMONY
+	await _r(48)   # 火种飞到半程
+	await _snap(_shot_base + "_ceremony.png")
+	await _wait_until(func(): return director.stage == 7, 700)   # TO_GATE
+	if dialogue.is_open():
+		dialogue.debug_finish()
 
-	# Beat 3 推夜：点火瞬间
-	player.global_position = Vector3(1.5, 0.06, -33.9)
+	# Beat 3 推夜：村口烽火点燃之后
+	player.global_position = beacon.global_position + Vector3(1.4, 0.06, 1.0)
 	player.velocity = Vector3.ZERO
 	await _wait_physics(5)
 	beacon.try_interact()
-	_aim_cam(cin, Vector3(6.2, 3.6, -26.2), Vector3(0, 2.6, -35.0))
-	await _r(100)
-	await _snap(_shot_base + "_beacon.png")
+	_aim_cam(cin, Vector3(12.0, 4.5, 3.0), Vector3(2.5, 1.8, -14.0))
+	await _r(140)
+	await _snap(_shot_base + "_gate.png")
 
 	# Beat 4 基准
 	await _r(240)
@@ -499,7 +580,7 @@ func _run_shot_timeline() -> void:
 		sum += d
 	var avg_fps := roundi(float(tail.size()) / maxf(sum, 0.0001))
 	print("[BENCH] avg fps last 120 frames = ", avg_fps)
-	_aim_cam(cin, Vector3(3.6, 1.8, 4.5), Vector3(0.1, 1.0, -0.7))
+	_aim_cam(cin, Vector3(17.0, 5.5, 15.0), Vector3(-1.0, 1.0, -3.0))
 	await _r(10)
 	await _snap(_shot_base + "_bench.png")
 

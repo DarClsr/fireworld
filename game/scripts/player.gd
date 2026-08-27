@@ -9,9 +9,14 @@ const JUMP_VELOCITY := 4.7
 const MOUSE_SENS := 0.0024
 const PITCH_MIN_DEG := -62.0
 const PITCH_MAX_DEG := 22.0
+const ROLL_TIME := 0.34
+const ROLL_SPEED := 8.6
+const ROLL_CD := 0.65
 
-enum State { MOVE, CHARGE, ATTACK }
+enum State { MOVE, CHARGE, ATTACK, DODGE }
 enum Phase { NONE, WINDUP, ACTIVE, RECOVER }
+
+signal rolled
 
 const LIGHT_STAGES: Array[Dictionary] = [
 	{"windup": 0.12, "active": 0.13, "recover": 0.17, "damage": 8.0, "knock": 2.0},
@@ -47,6 +52,11 @@ var _swing_tw: Tween
 var _debug_move_dir := Vector3.ZERO
 var _pitch_deg := -14.0
 var _throw_cd := 0.0
+var _roll_left := 0.0
+var _roll_cd := 0.0
+var _roll_dir := Vector3.ZERO
+var _active := true
+var _invincible := false
 var _tip_warm := Color(1.0, 0.72, 0.35)
 var _tip_green := Color(0.45, 0.9, 0.35)
 var staff_pivot: Node3D
@@ -183,6 +193,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _physics_process(delta: float) -> void:
 	_throw_cd = maxf(_throw_cd - delta, 0.0)
+	_roll_cd = maxf(_roll_cd - delta, 0.0)
 	if not is_on_floor():
 		velocity.y -= _gravity * delta
 
@@ -208,6 +219,8 @@ func _physics_process(delta: float) -> void:
 
 
 func _face_movement(delta: float) -> void:
+	if state == State.DODGE:
+		return
 	var flat := Vector3(velocity.x, 0.0, velocity.z)
 	if flat.length_squared() < 0.25:
 		return
@@ -222,6 +235,8 @@ func _move_scale() -> float:
 	match state:
 		State.CHARGE:
 			return 0.45
+		State.DODGE:
+			return 0.0
 		State.ATTACK:
 			match phase:
 				Phase.WINDUP:
@@ -236,6 +251,8 @@ func _move_scale() -> float:
 # ---------------------------------------------------------------- 战斗状态机
 
 func _tick_state(delta: float) -> void:
+	if not _active:
+		return
 	match state:
 		State.MOVE:
 			if Input.is_action_just_pressed("attack_heavy"):
@@ -244,12 +261,22 @@ func _tick_state(delta: float) -> void:
 				_start_stage(1)
 			elif Input.is_action_just_pressed("jump") and is_on_floor():
 				velocity.y = JUMP_VELOCITY
+			elif Input.is_action_just_pressed("dodge") and is_on_floor() and _roll_cd <= 0.0:
+				_start_roll()
 			elif Input.is_action_just_pressed("form_raw"):
 				_set_form(0)
 			elif Input.is_action_just_pressed("form_wood"):
 				_set_form(1)
 			elif Input.is_action_just_pressed("throw_seed"):
 				_do_throw()
+		State.DODGE:
+			_roll_left -= delta
+			var spd := ROLL_SPEED * clampf(_roll_left / ROLL_TIME, 0.25, 1.0)
+			velocity.x = _roll_dir.x * spd
+			velocity.z = _roll_dir.z * spd
+			if _roll_left <= 0.0:
+				state = State.MOVE
+				_invincible = false
 		State.CHARGE:
 			_charge_time += delta
 			_tip_mat.emission_energy_multiplier = lerpf(_tip_rest_energy, 4.2,
@@ -463,6 +490,55 @@ func debug_throw() -> void:
 	cancel_to_move()
 	_set_form(1)
 	_do_throw()
+
+
+func debug_roll() -> void:
+	if state == State.MOVE:
+		_roll_cd = 0.0
+		_start_roll()
+
+
+func celebrate_spark() -> void:
+	var tw := create_tween()
+	tw.tween_property(_tip_mat, "emission_energy_multiplier", 5.0, 0.25)
+	tw.tween_interval(0.4)
+	tw.tween_property(_tip_mat, "emission_energy_multiplier", _tip_rest_energy, 0.8)
+
+
+func set_active(v: bool) -> void:
+	_active = v
+	if not v:
+		cancel_to_move()
+
+
+func is_invincible() -> bool:
+	return _invincible
+
+
+func _start_roll() -> void:
+	var wish := Vector3.ZERO
+	var iv := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
+	wish = cam_yaw.global_basis * Vector3(iv.x, 0.0, iv.y)
+	wish.y = 0.0
+	if wish.length_squared() < 0.01:
+		wish = -model_root.global_basis.z
+		wish.y = 0.0
+	if wish.length_squared() < 0.01:
+		wish = Vector3.BACK
+	_roll_dir = wish.normalized()
+	_roll_left = ROLL_TIME
+	_roll_cd = ROLL_TIME + ROLL_CD
+	_invincible = true
+	_kill_swing()
+	_hit_set.clear()
+	hitbox.monitoring = false
+	state = State.DODGE
+	phase = Phase.NONE
+	var body_tween := create_tween()
+	body_tween.tween_property(model_root, "rotation:x", TAU, ROLL_TIME) \
+			.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	body_tween.tween_callback(func(): model_root.rotation.x = 0.0)
+	rolled.emit()
 
 
 # ---------------------------------------------------------------- 测试接口

@@ -15,6 +15,7 @@ const ANCHOR_HEIGHT := 1.05
 const SeedScript := preload("res://scripts/star_seed.gd")
 
 var player_body   # CharacterBody3D（player.gd），留 Duck typing 避免 Type 循环依赖
+var auto_start := true   # 序章门控：授火仪式前不发放星籽
 
 var _units: Array[Node3D] = []
 var _noises: Array[FastNoiseLite] = []
@@ -22,7 +23,8 @@ var _times: Array[float] = []
 
 
 func _ready() -> void:
-	add_seed(START_SEEDS)
+	if auto_start:
+		add_seed(START_SEEDS)
 
 
 func seed_count() -> int:
