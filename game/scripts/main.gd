@@ -35,6 +35,7 @@ var _checks := 0
 var _shot_base := ""
 var _fog_off := false
 var _smoke_requested := false
+var _findcube := false
 var _frame := 0
 var _fps_accum := 0.0
 var _fps_n := 0
@@ -53,6 +54,8 @@ func _ready() -> void:
 			_smoke_requested = true
 		elif a == "--nofog":
 			_fog_off = true
+		elif a == "--findcube":
+			_findcube = true
 		elif a.begins_with("--shot="):
 			_shot_base = a.trim_prefix("--shot=")
 
@@ -168,12 +171,7 @@ func _make_night_environment() -> Environment:
 	var e := Environment.new()
 	e.background_mode = Environment.BG_SKY
 	var sky := Sky.new()
-	var mat := ProceduralSkyMaterial.new()
-	mat.sky_top_color = Color(0.012, 0.02, 0.05)
-	mat.sky_horizon_color = Color(0.07, 0.1, 0.18)
-	mat.ground_bottom_color = Color(0.004, 0.005, 0.01)
-	mat.ground_horizon_color = Color(0.05, 0.07, 0.13)
-	sky.sky_material = mat
+	sky.sky_material = _make_starry_sky_material()
 	e.sky = sky
 	e.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	e.ambient_light_color = Color(0.45, 0.55, 0.75)
@@ -196,6 +194,83 @@ func _make_night_environment() -> Environment:
 	e.volumetric_fog_anisotropy = 0.6
 	e.volumetric_fog_length = 48.0
 	return e
+
+
+## 程序化星空：星（网格哈希+闪烁）+ 月亮本体与月晕 + 地平线薄云剪影。
+func _make_starry_sky_material() -> ShaderMaterial:
+	var shader := Shader.new()
+	shader.code = """
+shader_type sky;
+
+uniform vec3 moon_dir = vec3(0.0, 0.0, 0.0);
+
+float hash13(vec3 p) {
+	p = fract(p * 443.8975);
+	p += dot(p, p.yzx + 19.19);
+	return fract((p.x + p.y) * p.z);
+}
+float hash12(vec2 p) {
+	vec3 p3 = fract(vec3(p.xyx) * 443.8975);
+	p3 += dot(p3, p3.yzx + 19.19);
+	return fract((p3.x + p3.y) * p3.z);
+}
+float noise2(vec2 p) {
+	vec2 i = floor(p);
+	vec2 f = fract(p);
+	f = f * f * (3.0 - 2.0 * f);
+	float a = hash12(i);
+	float b = hash12(i + vec2(1.0, 0.0));
+	float c = hash12(i + vec2(0.0, 1.0));
+	float d = hash12(i + vec2(1.0, 1.0));
+	return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+
+void sky() {
+	vec3 dir = normalize(EYEDIR);
+	float h = clamp(dir.y, -1.0, 1.0);
+	vec3 top = vec3(0.010, 0.016, 0.045);
+	vec3 horizon = vec3(0.055, 0.075, 0.14);
+	vec3 col = mix(horizon, top, pow(clamp(h, 0.0, 1.0), 0.55));
+	if (h < 0.0) {
+		col = mix(horizon, vec3(0.02, 0.025, 0.05), clamp(-h * 3.0, 0.0, 1.0));
+	}
+
+	// 星星：上半天球 3D 网格哈希
+	if (h > 0.02) {
+		vec3 g = dir * 60.0;
+		vec3 cell = floor(g);
+		vec3 f = fract(g) - 0.5;
+		float rnd = hash13(cell);
+		if (rnd > 0.90) {
+			vec3 off = vec3(hash13(cell + 7.1), hash13(cell + 13.7), hash13(cell + 29.3)) - 0.5;
+			float d = length(f - off * 0.8);
+			float tw = 0.55 + 0.45 * sin(TIME * (1.0 + rnd * 3.0) + rnd * 40.0);
+			float star = smoothstep(0.13, 0.0, d) * tw * (rnd - 0.90) / 0.10;
+			col += vec3(0.9, 0.95, 1.0) * star * 0.9 * smoothstep(0.02, 0.2, h);
+		}
+	}
+
+	// 月亮：圆盘 + 边缘软化 + 月晕 + 简单斑驳
+	float md = dot(dir, normalize(moon_dir));
+	float disc = smoothstep(0.99928, 0.99946, md);
+	float maria = 0.82 + 0.36 * noise2(SKY_COORDS * 90.0);
+	col += vec3(0.95, 0.97, 1.0) * disc * maria * 1.7;
+	col += vec3(0.5, 0.62, 0.9) * pow(clamp(md, 0.0, 1.0), 320.0) * 0.4;
+
+	// 地平线薄云剪影（缓慢漂移）
+	float band = smoothstep(0.32, 0.02, abs(h - 0.10));
+	float cl = noise2(vec2(atan(dir.x, dir.z) * 3.0, h * 26.0) + vec2(TIME * 0.004, 0.0));
+	cl = smoothstep(0.46, 0.78, cl) * band;
+	col = mix(col, vec3(0.085, 0.10, 0.17), cl * 0.7);
+
+	COLOR = col;
+}
+"""
+	var sm := ShaderMaterial.new()
+	sm.shader = shader
+	var mb := Basis.from_euler(Vector3(deg_to_rad(-38.0), deg_to_rad(140.0), 0.0))
+	sm.set_shader_parameter("moon_dir", (-mb.z).normalized())
+	return sm
 
 
 func _make_moon() -> DirectionalLight3D:
@@ -563,14 +638,31 @@ func _run_shot_timeline() -> void:
 	if dialogue.is_open():
 		dialogue.debug_finish()
 
-	# Beat 3 推夜：村口烽火点燃之后
+	# Beat 3 推夜：村口烽火点燃之后（低机位直视，避灯笼）
+	cin.make_current()   # 仪式恢复了玩家相机，演出机位要抢回来
 	player.global_position = beacon.global_position + Vector3(1.4, 0.06, 1.0)
 	player.velocity = Vector3.ZERO
 	await _wait_physics(5)
 	beacon.try_interact()
-	_aim_cam(cin, Vector3(12.0, 4.5, 3.0), Vector3(2.5, 1.8, -14.0))
+	_aim_cam(cin, Vector3(0.0, 2.2, -9.0), Vector3(2.8, 1.5, -14.4))
 	await _r(140)
 	await _snap(_shot_base + "_gate.png")
+	if _findcube:
+		var fc := get_viewport().get_camera_3d()
+		print("[CUBE] camera=", fc.name, " at ", fc.global_position)
+		var from := fc.global_position
+		var dirn := (-fc.global_basis.z).normalized()
+		for n in get_tree().root.find_children("*", "VisualInstance3D", true, false):
+			var vi := n as VisualInstance3D
+			if vi == null or not vi.visible:
+				continue
+			var to := vi.global_position - from
+			var t := to.dot(dirn)
+			if t < 0.5 or t > 30.0:
+				continue
+			var off := (to - dirn * t).length()
+			if off < 2.5:
+				print("[CUBE] t=%.1f off=%.2f pos=%s %s <- %s" % [t, off, vi.global_position, vi.name, vi.get_parent().name])
 
 	# Beat 4 基准
 	await _r(240)
