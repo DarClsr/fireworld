@@ -174,24 +174,24 @@ func _make_night_environment() -> Environment:
 	sky.sky_material = _make_starry_sky_material()
 	e.sky = sky
 	e.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	e.ambient_light_color = Color(0.4, 0.42, 0.62)
-	e.ambient_light_energy = 0.18
+	e.ambient_light_color = Color(0.45, 0.48, 0.66)
+	e.ambient_light_energy = 0.34
 	e.tonemap_mode = Environment.TONE_MAPPER_ACES
-	e.tonemap_exposure = 1.05
+	e.tonemap_exposure = 1.3
 	e.glow_enabled = true
 	e.glow_intensity = 0.5
 	e.ssao_enabled = true
 	e.ssao_radius = 0.6
 	e.ssao_intensity = 1.6
 	e.fog_enabled = true
-	e.fog_light_color = Color(0.055, 0.065, 0.15)
-	e.fog_density = 0.012
+	e.fog_light_color = Color(0.075, 0.085, 0.17)
+	e.fog_density = 0.008
 	e.fog_sky_affect = 0.15
 	if _fog_off:
 		return e
 	e.volumetric_fog_enabled = true
-	e.volumetric_fog_density = 0.026
-	e.volumetric_fog_albedo = Color(0.5, 0.56, 0.72)
+	e.volumetric_fog_density = 0.016
+	e.volumetric_fog_albedo = Color(0.55, 0.6, 0.75)
 	e.volumetric_fog_emission = Color(0.06, 0.09, 0.16)
 	e.volumetric_fog_emission_energy = 0.8
 	e.volumetric_fog_anisotropy = 0.6
@@ -280,7 +280,7 @@ func _make_moon() -> DirectionalLight3D:
 	var m := DirectionalLight3D.new()
 	m.rotation_degrees = Vector3(-38, 140, 0)
 	m.light_color = Color(0.6, 0.7, 1.0)
-	m.light_energy = 0.22
+	m.light_energy = 0.5
 	m.shadow_enabled = true
 	m.directional_shadow_max_distance = 60.0
 	return m
@@ -299,14 +299,15 @@ uniform sampler2D screen_tex : hint_screen_texture, filter_linear;
 void fragment() {
 	vec3 col = texture(screen_tex, SCREEN_UV).rgb;
 	float lum = dot(col, vec3(0.299, 0.587, 0.114));
-	// 夜晚色彩科学：阴影偏蓝、亮部保色；轻加饱和与对比
+	// 夜晚色彩科学：阴影微偏蓝（轻）、亮部保色；轻加饱和与对比
 	float shadow_mask = 1.0 - smoothstep(0.0, 0.45, lum);
-	col = mix(col, col * vec3(0.62, 0.72, 1.18), shadow_mask * 0.55);
+	col = mix(col, col * vec3(0.82, 0.86, 1.1), shadow_mask * 0.4);
+	col += vec3(0.012, 0.013, 0.02);   // 抬一点黑位
 	float l2 = dot(col, vec3(0.299, 0.587, 0.114));
-	col = mix(vec3(l2), col, 1.08);
-	col = clamp((col - 0.5) * 1.06 + 0.5, vec3(0.0), vec3(1.0));
+	col = mix(vec3(l2), col, 1.07);
+	col = clamp((col - 0.5) * 1.04 + 0.5, vec3(0.0), vec3(1.0));
 	float d = distance(SCREEN_UV, vec2(0.5, 0.55));
-	col *= 1.0 - smoothstep(0.45, 1.05, d) * 0.4;
+	col *= 1.0 - smoothstep(0.5, 1.1, d) * 0.26;
 	COLOR = vec4(col, 1.0);
 }
 """
