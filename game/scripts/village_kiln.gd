@@ -50,8 +50,12 @@ const PATH_PTS := [
 func _ready() -> void:
 	_noise.seed = 55
 	_noise.frequency = 9.0
+	var has_assets := ResourceLoader.exists("res://assets/kenney_castle_kit/tower-square-mid-windows.glb")
 	for h: Dictionary in HOUSES:
-		_build_house(h)
+		if h.home and has_assets:
+			_build_asset_home()   # 样板房：castle-kit 模块件（docs/07 梯队二首件）
+		else:
+			_build_house(h)
 	_build_kiln()
 	for p: Vector3 in LANTERNS:
 		_build_lantern(p)
@@ -61,7 +65,7 @@ func _ready() -> void:
 	_build_watchtower()
 	_build_ground_cover()
 	add_child(_make_fireflies())
-	_make_smoke(_home_root.to_global(Vector3(1.0, 4.0, 1.0)))
+	_make_smoke(_home_root.to_global(Vector3(0, 4.4, 0)))
 	_make_smoke(Vector3(9.4, 4.8, -10.2))
 
 
@@ -158,6 +162,55 @@ func _window_gobo() -> ImageTexture:
 	img.fill_rect(Rect2i(9, 52, 46, 4), dark)     # 下框
 	_gobo = ImageTexture.create_from_image(img)
 	return _gobo
+
+
+# ---------------------------------------------------------------- 样板房（资产版灯芽家）
+
+func _build_asset_home() -> void:
+	var root := Node3D.new()
+	root.position = HOUSES[0].pos
+	root.rotation_degrees.y = HOUSES[0].rot
+	add_child(root)
+	_home_root = root
+
+	var base := "res://assets/kenney_castle_kit/"
+	AssetLib.place(root, base + "tower-square-mid-windows.glb", Vector3.ZERO)
+	AssetLib.place(root, base + "tower-square-mid-open.glb", Vector3(0, 1.01, 0))
+	AssetLib.place(root, base + "tower-square-roof.glb", Vector3(0, 2.02, 0), 0.0,
+			Vector3(1.18, 1.05, 1.18), Color(0.62, 0.45, 0.32, 1.0))   # 屋顶压深铜
+	AssetLib.place(root, base + "door.glb", Vector3(0, 0.02, 0.48), 0.0,
+			Vector3(1.4, 1.35, 1.0))
+	AssetLib.place(root, base + "flag-banner-short.glb", Vector3(0.78, 0, 0.5), 28.0,
+			Vector3.ONE * 1.5)
+
+	# 二层窗：炉火余光 + 窗棂投影
+	var win := MeshInstance3D.new()
+	var wm := BoxMesh.new()
+	wm.size = Vector3(0.36, 0.3, 0.05)
+	win.mesh = wm
+	win.position = Vector3(0, 1.5, 0.44)
+	win.material_override = _glow(Color(1.0, 0.76, 0.42), 1.1)
+	root.add_child(win)
+
+	var spot := SpotLight3D.new()
+	spot.position = Vector3(0, 1.55, 0.52)
+	spot.rotation_degrees.x = -56.0
+	spot.light_color = Color(1.0, 0.7, 0.4)
+	spot.spot_range = 6.0
+	spot.spot_angle = 42.0
+	spot.light_energy = 1.5
+	spot.shadow_enabled = false
+	spot.light_projector = _window_gobo()
+	root.add_child(spot)
+
+	var inner := OmniLight3D.new()
+	inner.position = Vector3(0, 1.5, 0)
+	inner.light_color = Color(1.0, 0.72, 0.42)
+	inner.omni_range = 5.0
+	inner.light_energy = 1.1
+	inner.shadow_enabled = false
+	root.add_child(inner)
+	lantern_lights.append(inner)
 
 
 # ---------------------------------------------------------------- 灰窑

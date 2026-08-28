@@ -174,14 +174,17 @@ func _make_night_environment() -> Environment:
 	sky.sky_material = _make_starry_sky_material()
 	e.sky = sky
 	e.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	e.ambient_light_color = Color(0.45, 0.55, 0.75)
-	e.ambient_light_energy = 0.22
+	e.ambient_light_color = Color(0.4, 0.42, 0.62)
+	e.ambient_light_energy = 0.18
 	e.tonemap_mode = Environment.TONE_MAPPER_ACES
 	e.tonemap_exposure = 1.05
 	e.glow_enabled = true
 	e.glow_intensity = 0.5
+	e.ssao_enabled = true
+	e.ssao_radius = 0.6
+	e.ssao_intensity = 1.6
 	e.fog_enabled = true
-	e.fog_light_color = Color(0.05, 0.08, 0.14)
+	e.fog_light_color = Color(0.055, 0.065, 0.15)
 	e.fog_density = 0.012
 	e.fog_sky_affect = 0.15
 	if _fog_off:
@@ -277,7 +280,7 @@ func _make_moon() -> DirectionalLight3D:
 	var m := DirectionalLight3D.new()
 	m.rotation_degrees = Vector3(-38, 140, 0)
 	m.light_color = Color(0.6, 0.7, 1.0)
-	m.light_energy = 0.28
+	m.light_energy = 0.22
 	m.shadow_enabled = true
 	m.directional_shadow_max_distance = 60.0
 	return m
@@ -293,16 +296,18 @@ func _make_grading_overlay() -> CanvasLayer:
 	shader.code = """
 shader_type canvas_item;
 uniform sampler2D screen_tex : hint_screen_texture, filter_linear;
-uniform float strength = 0.30;
 void fragment() {
 	vec3 col = texture(screen_tex, SCREEN_UV).rgb;
 	float lum = dot(col, vec3(0.299, 0.587, 0.114));
-	vec3 graded = mix(col, lum * vec3(0.45, 0.62, 1.05), 0.45);
+	// 夜晚色彩科学：阴影偏蓝、亮部保色；轻加饱和与对比
+	float shadow_mask = 1.0 - smoothstep(0.0, 0.45, lum);
+	col = mix(col, col * vec3(0.62, 0.72, 1.18), shadow_mask * 0.55);
+	float l2 = dot(col, vec3(0.299, 0.587, 0.114));
+	col = mix(vec3(l2), col, 1.08);
+	col = clamp((col - 0.5) * 1.06 + 0.5, vec3(0.0), vec3(1.0));
 	float d = distance(SCREEN_UV, vec2(0.5, 0.55));
-	float vig = smoothstep(0.42, 1.05, d);
-	vec3 outc = mix(col, graded, strength);
-	outc *= 1.0 - vig * 0.45;
-	COLOR = vec4(outc, 1.0);
+	col *= 1.0 - smoothstep(0.45, 1.05, d) * 0.4;
+	COLOR = vec4(col, 1.0);
 }
 """
 	var sm := ShaderMaterial.new()
@@ -621,6 +626,11 @@ func _run_shot_timeline() -> void:
 	_aim_cam(cin, Vector3(-19.0, 6.5, 15.5), Vector3(5.0, 0.8, -6.0))
 	await _r(110)
 	await _snap(_shot_base + "_village.png")
+
+	# Beat 1.5 样板房特写（资产版灯芽家）
+	_aim_cam(cin, Vector3(-14.5, 2.3, 16.8), Vector3(-9.3, 1.7, 12.2))
+	await _r(20)
+	await _snap(_shot_base + "_house.png")
 
 	# Beat 2 仪式：火种飞向灯芽（连续跳过途中所有对话直到仪式开演）
 	director.debug_ff_tutorials()
