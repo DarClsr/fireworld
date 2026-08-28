@@ -632,6 +632,11 @@ func _run_shot_timeline() -> void:
 	await _r(20)
 	await _snap(_shot_base + "_house.png")
 
+	# Beat 1.6 东方正屋特写（three.js 程序化建模）
+	_aim_cam(cin, Vector3(10.8, 3.2, 20.5), Vector3(5.0, 1.9, 15.6))
+	await _r(20)
+	await _snap(_shot_base + "_oriental.png")
+
 	# Beat 2 仪式：火种飞向灯芽（连续跳过途中所有对话直到仪式开演）
 	director.debug_ff_tutorials()
 	player.global_position = village.to_global(village.grandma_local) + Vector3(1.0, 0.06, 0.9)

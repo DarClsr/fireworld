@@ -38,7 +38,7 @@ const AVOID := [
 	[-8.5, -12.5, 3.2], [9.4, -10.2, 3.8], [7.2, -8.0, 1.6], [2.8, -14.4, 2.0],
 	[-6.5, 12.0, 1.6], [-4.5, -9.5, 1.4], [-2.0, 6.8, 1.8], [16.5, -11.5, 2.6],
 	[-4.2, 11.3, 1.2], [2.6, 11.8, 1.2], [-1.0, 8.6, 1.2], [7.6, -6.6, 1.2],
-	[-10.8, -2.0, 1.2],
+	[-10.8, -2.0, 1.2], [5.0, 16.0, 3.6],
 ]
 # 村中小径折线（散布避让，玩家动线）
 const PATH_PTS := [
@@ -64,6 +64,27 @@ func _ready() -> void:
 	_build_rocks()
 	_build_watchtower()
 	_build_ground_cover()
+	if ResourceLoader.exists("res://assets/oriental_house/oriental_house.glb"):
+		# 东方正屋：three.js 程序化建模导出（tmp/modeler/build_house.mjs）
+		var oh := AssetLib.place(self, "res://assets/oriental_house/oriental_house.glb",
+				Vector3(5, 0, 16.0), 195.0)
+		var inner := OmniLight3D.new()
+		inner.position = oh.to_global(Vector3(0, 1.6, 0))
+		inner.light_color = Color(1.0, 0.72, 0.42)
+		inner.omni_range = 6.5
+		inner.light_energy = 1.5
+		inner.shadow_enabled = false
+		add_child(inner)
+		lantern_lights.append(inner)
+		for lp: Vector3 in [Vector3(-1.05, 1.5, 1.72), Vector3(1.05, 1.5, 1.72)]:
+			var glow := MeshInstance3D.new()
+			var gm := BoxMesh.new()
+			gm.size = Vector3(0.8, 0.8, 0.04)
+			glow.mesh = gm
+			glow.position = oh.to_global(lp + Vector3(0, 0, 0.06))
+			glow.rotation.y = deg_to_rad(195.0)
+			glow.material_override = _glow(Color(1.0, 0.76, 0.42), 1.3)
+			add_child(glow)
 	add_child(_make_fireflies())
 	_make_smoke(_home_root.to_global(Vector3(0, 4.4, 0)))
 	_make_smoke(Vector3(9.4, 4.8, -10.2))
