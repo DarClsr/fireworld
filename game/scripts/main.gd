@@ -23,6 +23,9 @@ var dialogue
 
 var env: Environment
 var moon: DirectionalLight3D
+var _we: WorldEnvironment
+var _grading_layer: CanvasLayer
+var day_mode := false
 var hud: Label
 var obj_label: Label
 var _banner_title: Label
@@ -56,6 +59,8 @@ func _ready() -> void:
 			_fog_off = true
 		elif a == "--findcube":
 			_findcube = true
+		elif a == "--day":
+			day_mode = true
 		elif a.begins_with("--shot="):
 			_shot_base = a.trim_prefix("--shot=")
 
@@ -99,9 +104,33 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_pressed("add_seed"):
 		if swarm.seed_count() > 0:   # 授火前不许作弊加籽
 			swarm.add_seed(1)
+	elif event.is_action_pressed("toggle_time"):
+		day_mode = not day_mode
+		_apply_time_of_day()
 	elif event is InputEventMouseButton and event.pressed:
 		if Input.mouse_mode == Input.MOUSE_MODE_VISIBLE and DisplayServer.get_name() != "headless":
 			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+
+
+## 昼夜切换：重建环境 + 调天光 + 村内灯火按日/夜取值。
+func _apply_time_of_day() -> void:
+	if day_mode:
+		env = _make_day_environment()
+		moon.rotation_degrees = Vector3(-52, 35, 0)
+		moon.light_color = Color(1.0, 0.95, 0.82)
+		moon.light_energy = 1.25
+	else:
+		env = _make_night_environment()
+		moon.rotation_degrees = Vector3(-38, 140, 0)
+		moon.light_color = Color(0.6, 0.7, 1.0)
+		moon.light_energy = 0.5
+	_we.environment = env
+	if _grading_layer != null:
+		_grading_layer.visible = not day_mode
+	if village != null:
+		village.set_day(day_mode)
+	if _campfire_light != null:
+		_campfire_light.light_energy = 1.0 if day_mode else 2.4
 
 
 func lit_count() -> int:
@@ -113,12 +142,13 @@ func lit_count() -> int:
 func _build_world() -> void:
 	var cn := CnFont.get_font()
 	env = _make_night_environment()
-	var we := WorldEnvironment.new()
-	we.environment = env
-	add_child(we)
+	_we = WorldEnvironment.new()
+	_we.environment = env
+	add_child(_we)
 	moon = _make_moon()
 	add_child(moon)
-	add_child(_make_grading_overlay())
+	_grading_layer = _make_grading_overlay()
+	add_child(_grading_layer)
 
 	add_child(_make_platform(Vector3(0, -0.5, 2.0), Vector2(46, 36)))   # 村子地面 z∈[-16,20]
 
@@ -165,6 +195,9 @@ func _build_world() -> void:
 	director.dialogue = dialogue
 	add_child(director)
 	director.run.call_deferred()
+
+	if day_mode:
+		_apply_time_of_day()
 
 
 func _make_night_environment() -> Environment:
@@ -284,6 +317,31 @@ func _make_moon() -> DirectionalLight3D:
 	m.shadow_enabled = true
 	m.directional_shadow_max_distance = 60.0
 	return m
+
+
+## 白天环境：蓝天 + 天光环境光 + 轻雾，无体积雾无调色。
+func _make_day_environment() -> Environment:
+	var e := Environment.new()
+	e.background_mode = Environment.BG_SKY
+	var sky := Sky.new()
+	var mat := ProceduralSkyMaterial.new()
+	mat.sky_top_color = Color(0.28, 0.5, 0.85)
+	mat.sky_horizon_color = Color(0.68, 0.79, 0.9)
+	mat.ground_bottom_color = Color(0.3, 0.32, 0.3)
+	mat.ground_horizon_color = Color(0.6, 0.65, 0.68)
+	sky.sky_material = mat
+	e.sky = sky
+	e.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
+	e.ambient_light_energy = 1.0
+	e.tonemap_mode = Environment.TONE_MAPPER_ACES
+	e.tonemap_exposure = 1.1
+	e.glow_enabled = true
+	e.glow_intensity = 0.2
+	e.fog_enabled = true
+	e.fog_light_color = Color(0.7, 0.78, 0.88)
+	e.fog_density = 0.004
+	e.fog_sky_affect = 0.1
+	return e
 
 
 func _make_grading_overlay() -> CanvasLayer:
@@ -484,6 +542,8 @@ func show_banner(title: String, sub: String) -> void:
 
 
 func push_back_night() -> void:
+	if day_mode:
+		return
 	var tw := create_tween()
 	tw.set_parallel(true)
 	tw.tween_property(env, "ambient_light_energy", 0.42, 1.6)

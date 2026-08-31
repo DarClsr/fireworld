@@ -13,6 +13,7 @@ var gate_local := Vector3(2.8, 0.0, -14.4)
 var dummy_local := Vector3(-4.5, 0.0, -9.5)
 
 var lantern_lights: Array[OmniLight3D] = []
+var day_mode := false
 
 var _ember_light: OmniLight3D
 var _noise := FastNoiseLite.new()
@@ -94,6 +95,17 @@ func _process(delta: float) -> void:
 	_t += delta
 	if _ember_light != null:
 		_ember_light.light_energy = 1.3 * (0.86 + 0.14 * _noise.get_noise_1d(_t * 7.0))
+		if day_mode:
+			_ember_light.light_energy = 0.5
+
+
+## 昼夜切换：白天灯火压暗（夜里恢复由 _apply_time_of_day 统一赋值）。
+func set_day(d: bool) -> void:
+	day_mode = d
+	if _ember_light != null and not d:
+		_ember_light.light_energy = 1.3
+	for l in lantern_lights:
+		l.light_energy = 0.35 if d else 1.1
 
 
 # ---------------------------------------------------------------- 村舍
